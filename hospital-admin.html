@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BRAND ORBIT Hospital Admin</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Arial;background:#f3f5f7;color:#171717}
+header{background:#111;color:#fff;padding:16px;font-weight:900;font-size:21px}
+header span{color:#ff7900}.wrap{max-width:850px;margin:auto;padding:18px}
+.box{background:#fff;padding:22px;border-radius:18px;margin:25px auto;box-shadow:0 2px 12px #0001}
+input{width:100%;padding:14px;margin:7px 0 14px;border:1px solid #ccc;border-radius:10px;font-size:16px}
+button{border:0;border-radius:10px;padding:13px 17px;font-weight:800;font-size:15px;background:#ff7900;color:#fff;margin:4px;cursor:pointer}
+.black{background:#111}.red{background:#d33}.ok{background:#e8f5e9;border:2px solid #39a24a;padding:18px;border-radius:15px}.bad{background:#fff0f0;border:2px solid #d33;padding:18px;border-radius:15px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.item{background:#fff;border:1px solid #ddd;border-radius:10px;padding:12px}.item small{color:#777;display:block}.item b{display:block;margin-top:5px}
+table{width:100%;border-collapse:collapse}th,td{padding:9px;border:1px solid #ddd;text-align:left}
+#dash{display:none}#scan{display:none}video{width:100%;max-width:430px;border-radius:14px;background:#111}
+@media(max-width:600px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<header>BRAND <span>ORBIT</span> — HOSPITAL ADMIN</header>
+
+<div id="login" class="box" style="max-width:430px">
+<h2>🏥 Hospital Admin Login</h2>
+<p>Authorised hospital staff can verify BRAND ORBIT Family Health Cards.</p>
+<input id="email" type="email" placeholder="Hospital Email">
+<input id="pass" type="password" placeholder="Password">
+<button id="loginBtn" style="width:100%">Hospital Admin Login</button>
+<div id="loginMsg"></div>
+</div>
+
+<div id="dash" class="wrap">
+<div class="box">
+<h2>🏥 Hospital Dashboard</h2>
+<p id="user"></p>
+<p>Verification only. Hospital staff cannot register or edit customers.</p>
+<button class="red" onclick="logout()">Logout</button>
+</div>
+
+<div class="box">
+<h2>✅ Verify Family Health Card</h2>
+<input id="cid" placeholder="Example: BOH-000001">
+<button onclick="verify()">VERIFY CARD</button>
+<button class="black" onclick="camera()">📷 CAMERA QR</button>
+<button class="black" onclick="document.getElementById('gallery').click()">🖼️ GALLERY QR</button>
+<input id="gallery" type="file" accept="image/*" style="display:none">
+<div id="scan"><video id="video" playsinline></video><br><button class="black" onclick="stop()">Stop Camera</button></div>
+<div id="result"></div>
+</div>
+</div>
+
+<script>
+const URL="https://cuqssvkqvibnkngjrxyw.supabase.co";
+const KEY="sb_publishable_7ETo97VeYJHBx1_K3mW9cw_KQUx16PK";
+const db=supabase.createClient(URL,KEY);
+const $=x=>document.getElementById(x);
+const esc=x=>String(x??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
+
+async function login(){
+ let email=$("email").value.trim(),pass=$("pass").value;
+ if(!email||!pass){$("loginMsg").innerHTML="<p>Enter email and password.</p>";return}
+ $("loginBtn").disabled=true;
+ let r=await db.auth.signInWithPassword({email,password:pass});
+ $("loginBtn").disabled=false;
+ if(r.error){$("loginMsg").innerHTML='<div class="bad">Login failed: '+esc(r.error.message)+'</div>';return}
+ show(r.data.user);
+}
+
+function show(u){
+ $("login").style.display="none";$("dash").style.display="block";
+ $("user").textContent="Signed in: "+(u.email||"");
+}
+
+async function logout(){await db.auth.signOut();location.reload()}
+
+async function verify(){
+ let s=(await db.auth.getSession()).data.session;
+ if(!s){$("result").innerHTML='<div class="bad">Please login first.</div>';return}
+ let q=$("cid").value.trim().toUpperCase();
+ if(!q){$("result").innerHTML='<div class="bad">Enter Customer ID.</div>';return}
+ $("result").innerHTML="<p>Checking BRAND ORBIT database...</p>";
+ let r=await db.from("customers").select("id,customer_id,full_name,mobile,address").eq("customer_id",q).maybeSingle();
+ if(r.error){$("result").innerHTML='<div class="bad"><b>Verification error</b><br>'+esc(r.error.message)+'</div>';return}
+ if(!r.data){$("result").innerHTML='<div class="bad"><h2>❌ CARD NOT FOUND</h2>Customer ID <b>'+esc(q)+'</b> was not found.</div>';return}
+ let f=await db.from("family_members").select("member_name,relationship,age,gender").eq("customer_ref",r.data.id).order("id");
+ if(f.error){$("result").innerHTML='<div class="bad">Family data error<br>'+esc(f.error.message)+'</div>';return}
+ let rows=(f.data||[]).map(x=>"<tr><td>"+esc(x.member_name)+"</td><td>"+esc(x.relationship)+"</td><td>"+esc(x.age||"")+"</td><td>"+esc(x.gender||"")+"</td></tr>").join("");
+ let c=r.data;
+ $("result").innerHTML='<div class="ok"><h2>✅ CARD VERIFIED — ACTIVE</h2><div class="grid">'+
+ '<div class="item"><small>Customer ID</small><b>'+esc(c.customer_id)+'</b></div>'+
+ '<div class="item"><small>Customer Name</small><b>'+esc(c.full_name)+'</b></div>'+
+ '<div class="item"><small>Mobile</small><b>'+esc(c.mobile)+'</b></div>'+
+ '<div class="item"><small>Status</small><b>ACTIVE / FOUND</b></div></div>'+
+ '<p><b>Address:</b> '+esc(c.address||"—")+'</p><h3>Family Members</h3>'+
+ '<table><tr><th>Name</th><th>Relationship</th><th>Age</th><th>Gender</th></tr>'+rows+'</table>'+
+ '<p><small>Aadhaar is not displayed in the Hospital Admin Panel.</small></p></div>';
+}
+
+let stream=null,timer=null;
+async function camera(){
+ try{
+  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}}});
+  $("video").srcObject=stream;$("scan").style.display="block";await $("video").play();
+  if(!window.BarcodeDetector){$("result").innerHTML="<p>Live QR unavailable. Use Gallery QR or Customer ID.</p>";return}
+  let d=new BarcodeDetector({formats:["qr_code"]});
+  async function loop(){
+   if(!stream)return;
+   try{let x=await d.detect($("video"));if(x.length&&x[0].rawValue){$("cid").value=x[0].rawValue;stop();verify();return}}catch(e){}
+   timer=requestAnimationFrame(loop);
+  }loop();
+ }catch(e){$("result").innerHTML='<div class="bad">Camera permission denied. Use Customer ID or Gallery QR.</div>'}
+}
+function stop(){if(timer)cancelAnimationFrame(timer);timer=null;if(stream){stream.getTracks().forEach(x=>x.stop());stream=null}$("scan").style.display="none"}
+
+$("gallery").onchange=e=>{
+ let file=e.target.files[0];if(!file)return;
+ let img=new Image(),url=URL.createObjectURL(file);
+ img.onload=()=>{
+  let c=document.createElement("canvas"),s=Math.min(1,1800/Math.max(img.naturalWidth,img.naturalHeight));
+  c.width=img.naturalWidth*s;c.height=img.naturalHeight*s;
+  let x=c.getContext("2d");x.drawImage(img,0,0,c.width,c.height);
+  let p=x.getImageData(0,0,c.width,c.height),code=jsQR(p.data,p.width,p.height);
+  URL.revokeObjectURL(url);
+  if(code){$("cid").value=code.data;verify()}else $("result").innerHTML='<div class="bad">QR not detected. Try a clearer image.</div>';
+ };img.src=url;e.target.value="";
+};
+
+db.auth.getSession().then(r=>{if(r.data.session)show(r.data.session.user)});
+</script>
+</body>
+</html>
